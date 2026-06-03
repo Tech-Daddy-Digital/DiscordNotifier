@@ -36,7 +36,10 @@ export function createBot(config: AppConfig, logger: AppLogger): BotRuntime {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
-      await handleInteraction(interaction, logger);
+      await handleInteraction(interaction, logger, {
+        notificationChannelId: config.discord.notificationChannelId,
+        hasWebhookToken: Boolean(config.notificationWebhookToken),
+      });
     } catch (error) {
       logger.error({ error }, 'Failed to handle Discord interaction');
     }

@@ -4,7 +4,7 @@ PulseDaddy is the working name for the Tech Daddy Digital Discord Notification B
 
 The long-term goal is to monitor selected YouTube, Twitch, Kick, X/Twitter, Bluesky, and Instagram accounts, then post customizable Discord notifications to the channels and roles chosen by each server administrator.
 
-This first repository commit is the clean MVP scaffold: Discord connection, slash-command registration, a health endpoint, a secured placeholder notification endpoint, Docker deployment, tests, linting, and documentation. Real third-party service adapters come next.
+This MVP connects to Discord, registers slash commands, exposes a health endpoint, and supports secured webhook delivery for both generic smoke tests and a representative mock YouTube livestream-start notification. Real third-party service adapters come next.
 
 ## Why PulseDaddy?
 
@@ -14,10 +14,12 @@ PulseDaddy fits the project brief: it is short, memorable, notification-themed, 
 
 - TypeScript + Node.js LTS project structure.
 - Discord bot login via `DISCORD_TOKEN`.
-- `/status` slash command.
+- `/status` slash command with current notification-channel/auth status.
+- `/setup` slash command that explains the MVP environment/webhook configuration flow.
 - Fastify HTTP server with `GET /health`.
-- `POST /notifications/placeholder` route for smoke-testing Discord delivery.
-- Optional bearer-token auth for the placeholder route.
+- `POST /notifications/placeholder` route for generic smoke-testing Discord delivery.
+- `POST /notifications/mock/youtube-live` route that sends a representative formatted YouTube livestream-start notification while real YouTube credentials are not yet configured.
+- Optional bearer-token auth for notification routes.
 - Environment validation with Zod.
 - Pino logging.
 - Dockerfile and Docker Compose deployment.
@@ -134,10 +136,28 @@ curl http://127.0.0.1:3000/health
 Send a placeholder notification:
 
 ```bash
-curl -X POST http://127.0.0.1:3000/notifications/placeholder   -H 'Content-Type: application/json'   -H 'Authorization: Bearer change-me-before-public-deploy'   -d '{"title":"PulseDaddy test","message":"Discord delivery works."}'
+curl -X POST http://127.0.0.1:3000/notifications/placeholder \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <your-webhook-token>' \
+  -d '{"title":"PulseDaddy test","message":"Discord delivery works."}'
 ```
 
-If you leave `NOTIFICATION_WEBHOOK_TOKEN` blank, the placeholder endpoint does not require the Authorization header. For any public or cloud deployment, set a strong token.
+Send the MVP mock YouTube livestream-start notification:
+
+```bash
+curl -X POST http://127.0.0.1:3000/notifications/mock/youtube-live \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <your-webhook-token>' \
+  -d '{
+    "channelName": "Tech Daddy Digital",
+    "videoTitle": "Friday Homelab Stream",
+    "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "startedAt": "2026-06-03T06:32:00.000Z",
+    "pingRoleId": "456789012345678901"
+  }'
+```
+
+`pingRoleId` is optional. If you leave `NOTIFICATION_WEBHOOK_TOKEN` blank, the notification endpoints do not require the Authorization header. For any public or cloud deployment, set a strong token.
 
 ## Docker Compose setup
 
@@ -233,10 +253,10 @@ src/
   http-server.ts                    Fastify HTTP routes
   discord/
     bot.ts                          Discord client setup
-    commands.ts                     Slash command definitions and handlers
+    commands.ts                     Slash command definitions and handlers for /status and /setup
     register-commands.ts            Discord command registration
   notifications/
-    notification-router.ts          Discord notification delivery abstraction
+    notification-router.ts          Discord notification delivery and mock YouTube formatting
 tests/                              Vitest tests
 scripts/smoke-config.ts             Safe config smoke check
 Dockerfile                          Container image

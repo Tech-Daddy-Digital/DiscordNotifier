@@ -5,6 +5,14 @@ export type PlaceholderNotification = {
   message: string;
 };
 
+export type MockYouTubeLiveNotification = {
+  channelName: string;
+  videoTitle: string;
+  videoUrl: string;
+  startedAt: Date;
+  pingRoleId?: string | undefined;
+};
+
 export type SendableTextChannel = {
   isTextBased: () => boolean;
   send: (payload: unknown) => Promise<unknown>;
@@ -36,13 +44,7 @@ export class NotificationRouter {
   }
 
   async sendPlaceholderNotification(notification: PlaceholderNotification): Promise<void> {
-    const channel = await this.fetchChannel(this.notificationChannelId);
-
-    if (!channel?.isTextBased()) {
-      throw new Error(
-        `Configured notification channel ${this.notificationChannelId} was not found or is not text-based`,
-      );
-    }
+    const channel = await this.getConfiguredTextChannel();
 
     const embed = new EmbedBuilder()
       .setTitle(notification.title)
@@ -52,5 +54,39 @@ export class NotificationRouter {
       .setFooter({ text: 'PulseDaddy scaffold notification' });
 
     await channel.send({ embeds: [embed] });
+  }
+
+  async sendMockYouTubeLiveNotification(
+    notification: MockYouTubeLiveNotification,
+  ): Promise<void> {
+    const channel = await this.getConfiguredTextChannel();
+    const embed = new EmbedBuilder()
+      .setTitle(`🔴 ${notification.channelName} is live on YouTube`)
+      .setDescription(notification.videoTitle)
+      .setURL(notification.videoUrl)
+      .setColor(0xff0000)
+      .addFields(
+        { name: 'Event', value: 'Stream started', inline: true },
+        { name: 'Started', value: notification.startedAt.toISOString(), inline: true },
+      )
+      .setTimestamp(notification.startedAt)
+      .setFooter({ text: 'PulseDaddy mock YouTube integration' });
+
+    const payload: { content?: string; embeds: EmbedBuilder[] } = { embeds: [embed] };
+    if (notification.pingRoleId) payload.content = `<@&${notification.pingRoleId}>`;
+
+    await channel.send(payload);
+  }
+
+  private async getConfiguredTextChannel(): Promise<SendableTextChannel> {
+    const channel = await this.fetchChannel(this.notificationChannelId);
+
+    if (!channel?.isTextBased()) {
+      throw new Error(
+        `Configured notification channel ${this.notificationChannelId} was not found or is not text-based`,
+      );
+    }
+
+    return channel;
   }
 }
