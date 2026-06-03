@@ -19,7 +19,8 @@ describe('loadConfig', () => {
     expect(config.discord.clientId).toBe('123456789012345678');
     expect(config.discord.guildId).toBe('234567890123456789');
     expect(config.discord.notificationChannelId).toBe('345678901234567890');
-    expect(config.http).toEqual({ host: '127.0.0.1', port: 3001 });
+    expect(config.http).toMatchObject({ host: '127.0.0.1', port: 3001, webBaseUrl: 'http://localhost:3000' });
+    expect(config.databasePath).toBe('./data/pulsedaddy.sqlite');
     expect(config.logLevel).toBe('debug');
     expect(config.notificationWebhookToken).toBe('secret');
     expect(config.sendStartupPlaceholderNotification).toBe(true);
@@ -33,7 +34,9 @@ describe('loadConfig', () => {
     });
 
     expect(config.discord.guildId).toBeUndefined();
-    expect(config.http).toEqual({ host: '0.0.0.0', port: 3000 });
+    expect(config.http).toMatchObject({ host: '0.0.0.0', port: 3000, webBaseUrl: 'http://localhost:3000' });
+    expect(config.http.sessionSecret).toHaveLength(43);
+    expect(config.databasePath).toBe('./data/pulsedaddy.sqlite');
     expect(config.logLevel).toBe('info');
     expect(config.notificationWebhookToken).toBeUndefined();
   });

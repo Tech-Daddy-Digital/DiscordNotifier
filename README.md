@@ -101,6 +101,10 @@ Copy `.env.example` to `.env` and configure these values:
 | --- | --- | --- |
 | `DISCORD_TOKEN` | Yes | Bot token from the Discord Developer Portal Bot page. Keep this secret and rotate it immediately if exposed. |
 | `DISCORD_CLIENT_ID` | Yes | Application ID from OAuth2 -> General in the Discord Developer Portal. |
+| `DISCORD_CLIENT_SECRET` | Yes for web login | OAuth2 client secret from the Discord Developer Portal. Keep this secret. |
+| `WEB_BASE_URL` | Yes for web login | Public browser URL for PulseDaddy, for example `https://pulsedaddy.example.com`. Discord callback is `${WEB_BASE_URL}/auth/callback`. |
+| `SESSION_SECRET` | Yes for web login | At least 32 random characters used to protect browser sessions. Generate with `openssl rand -base64 48`. |
+| `DATABASE_PATH` | No | SQLite file path for guild settings, admin roles, routes, sources, sessions, and delivery/event state. Defaults to `./data/pulsedaddy.sqlite`. |
 | `DISCORD_GUILD_ID` | Recommended for testing | Test server ID. Guild command registration updates almost immediately; global commands can take up to an hour. |
 | `DISCORD_NOTIFICATION_CHANNEL_ID` | Yes | Default text channel where MVP notifications are posted. |
 | `HTTP_HOST` | No | Bind address for the Fastify health/webhook server. Defaults to `0.0.0.0`. |
@@ -126,6 +130,72 @@ Grant the bot these minimum permissions in the target notification channel:
 - Read Message History
 
 If notifications return `202` but no Discord message appears, check that the bot role can see and send to `DISCORD_NOTIFICATION_CHANNEL_ID`.
+
+
+## Web admin UI and Discord OAuth setup
+
+PulseDaddy now serves a small web administration UI at `/admin`.
+
+Use it for:
+
+- Discord login with `identify` and `guilds` OAuth scopes.
+- Adding PulseDaddy to another server from the `/invite` route.
+- Listing guilds the signed-in user can manage.
+- Configuring each guild's PulseDaddy admin roles.
+- Choosing notification routes: Discord channel, optional ping role, and message template.
+- Creating monitored sources. YouTube is the MVP source type for channel/livestream lifecycle configuration; Twitch, Kick, X/Twitter, Bluesky, and Instagram are available as extensible placeholder source types for future monitor workers.
+
+### Discord Developer Portal redirect URL
+
+Open your Discord application, then go to OAuth2 -> Redirects and add exactly:
+
+```text
+https://your-public-pulsedaddy-domain.example/auth/callback
+```
+
+For local-only development, use:
+
+```text
+http://localhost:3000/auth/callback
+```
+
+Set `WEB_BASE_URL` to the matching base URL without the path, for example:
+
+```env
+WEB_BASE_URL=https://your-public-pulsedaddy-domain.example
+```
+
+If the callback URL in Discord does not exactly match `${WEB_BASE_URL}/auth/callback`, login will fail before PulseDaddy receives the user.
+
+### Bot invite permissions
+
+The `/invite` route generates a Discord install URL with these scopes:
+
+- `bot`
+- `applications.commands`
+
+It requests permissions for viewing channels, sending messages, embedding links, reading message history, and managing webhooks-compatible notification delivery. After install, make sure the bot role can see and send to the chosen notification channel.
+
+### Who can manage a guild?
+
+A signed-in Discord user can manage a guild in PulseDaddy when any of these are true:
+
+1. They own the Discord guild.
+2. They have Discord Administrator permission.
+3. They have Discord Manage Server permission.
+4. They have a role configured in that guild as a PulseDaddy admin role.
+
+This means server owners can delegate PulseDaddy administration without making someone a full Discord administrator.
+
+### SQLite persistence
+
+PulseDaddy stores guild settings, admin roles, notification routes, monitored sources, future delivery/event rows, and web sessions in SQLite. For Docker Compose, the database lives in the `pulsedaddy-data` named volume mounted at `/app/data`.
+
+Back it up like any other SQLite database:
+
+```bash
+docker compose exec pulsedaddy cp /app/data/pulsedaddy.sqlite /app/data/pulsedaddy.sqlite.backup
+```
 
 ## Local setup
 
@@ -224,6 +294,8 @@ docker compose down
 5. Run `docker compose up -d --build`.
 6. If exposing the HTTP endpoint publicly, put it behind HTTPS with a reverse proxy such as Caddy, Traefik, Nginx Proxy Manager, or Cloudflare Tunnel.
 7. Always set `NOTIFICATION_WEBHOOK_TOKEN` for exposed endpoints.
+8. Add `${WEB_BASE_URL}/auth/callback` to Discord OAuth2 Redirects before using the web login.
+9. Persist `DATABASE_PATH` with a Docker volume so guild settings survive container rebuilds.
 
 ## Launch validation
 
