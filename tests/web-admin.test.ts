@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { createHttpServer } from '../src/http-server.js';
 import { createLogger } from '../src/logger.js';
+import { renderGuildAdminShell } from '../src/admin-ui.js';
 import { GuildSettingsStore } from '../src/settings-store.js';
 import type { DiscordApiClient } from '../src/discord-api-client.js';
 import type { NotificationRouter } from '../src/notifications/notification-router.js';
@@ -97,6 +98,15 @@ describe('web admin and OAuth routes', () => {
     expect(detail.statusCode).toBe(200);
     expect(fetchCurrentUserGuilds).toHaveBeenCalledTimes(1);
     await app.close();
+  });
+
+  it('renders monitored source route selection as an optional dropdown backed by created routes', () => {
+    const shell = renderGuildAdminShell('guild-1');
+
+    expect(shell).toContain('function routeOptionLabel(route)');
+    expect(shell).toContain('<select id="sourceRoute">');
+    expect(shell).toContain('<option value="">No specific route</option>');
+    expect(shell).not.toContain('<input id="sourceRoute" placeholder="Optional route ID">');
   });
 
   it('allows an administrator to configure settings, routes, and monitored sources', async () => {
