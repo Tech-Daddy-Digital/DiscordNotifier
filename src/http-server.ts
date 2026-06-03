@@ -10,6 +10,14 @@ const placeholderNotificationBodySchema = z.object({
   message: z.string().min(1).max(4096),
 });
 
+const mockYouTubeLiveNotificationBodySchema = z.object({
+  channelName: z.string().min(1).max(256),
+  videoTitle: z.string().min(1).max(512),
+  videoUrl: z.string().url(),
+  startedAt: z.coerce.date(),
+  pingRoleId: z.string().regex(/^\d{10,30}$/).optional(),
+});
+
 export type HttpServerOptions = {
   config: AppConfig;
   logger: AppLogger;
@@ -26,17 +34,33 @@ export async function createHttpServer(options: HttpServerOptions) {
   }));
 
   app.post('/notifications/placeholder', async (request, reply) => {
-    if (options.config.notificationWebhookToken) {
-      const expected = `Bearer ${options.config.notificationWebhookToken}`;
-      if (request.headers.authorization !== expected) {
-        return reply.code(401).send({ error: 'Unauthorized' });
-      }
-    }
+    const authFailure = authorizeWebhookRequest(options.config, request.headers.authorization);
+    if (authFailure) return reply.code(401).send(authFailure);
 
     const notification = placeholderNotificationBodySchema.parse(request.body);
     await options.notificationRouter.sendPlaceholderNotification(notification);
     return reply.code(202).send({ accepted: true });
   });
 
+  app.post('/notifications/mock/youtube-live', async (request, reply) => {
+    const authFailure = authorizeWebhookRequest(options.config, request.headers.authorization);
+    if (authFailure) return reply.code(401).send(authFailure);
+
+    const notification = mockYouTubeLiveNotificationBodySchema.parse(request.body);
+    await options.notificationRouter.sendMockYouTubeLiveNotification(notification);
+    return reply.code(202).send({ accepted: true });
+  });
+
   return app;
+}
+
+function authorizeWebhookRequest(config: AppConfig, authorizationHeader?: string) {
+  if (!config.notificationWebhookToken) return null;
+
+  const expected = `Bearer ${config.notificationWebhookToken}`;
+  if (authorizationHeader !== expected) {
+    return { error: 'Unauthorized' };
+  }
+
+  return null;
 }
