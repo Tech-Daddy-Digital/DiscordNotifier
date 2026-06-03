@@ -100,6 +100,32 @@ describe('web admin and OAuth routes', () => {
     await app.close();
   });
 
+  it('returns created route options with stable IDs and safe empty state', async () => {
+    const store = makeStore();
+    const discordApi: Partial<DiscordApiClient> = {
+      exchangeCodeForToken: vi.fn(),
+      fetchCurrentUser: vi.fn(),
+      fetchCurrentUserGuilds: vi.fn(async () => [{ id: 'guild-1', name: 'Tech Server', owner: false, permissions: '32' }]),
+      fetchGuildMember: vi.fn(async () => ({ userId: 'user-1', roleIds: [], permissions: '32' })),
+      fetchGuildChannels: vi.fn(),
+      fetchGuildRoles: vi.fn(),
+    };
+    const app = await createHttpServer({ config: config(), logger: createLogger({ logLevel: 'silent' }), notificationRouter: {} as NotificationRouter, settingsStore: store, discordApi: discordApi as DiscordApiClient });
+    const sid = store.createSession({ userId: 'user-1', username: 'Admin', discriminator: '0000', avatar: null, accessToken: 'access', refreshToken: null, expiresAt: Date.now() + 60000 });
+
+    const empty = await app.inject({ method: 'GET', url: '/api/guilds/guild-1/routes', cookies: { pulsedaddy_session: sid } });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ routes: [] });
+
+    const created = await app.inject({ method: 'POST', url: '/api/guilds/guild-1/routes', cookies: { pulsedaddy_session: sid }, payload: { id: 'route-1', name: 'Livestreams', channelId: 'chan-1', pingRoleId: 'role-1', messageTemplate: '{{displayName}} is live: {{title}}' } });
+    expect(created.statusCode).toBe(201);
+
+    const listed = await app.inject({ method: 'GET', url: '/api/guilds/guild-1/routes', cookies: { pulsedaddy_session: sid } });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual({ routes: [{ id: 'route-1', name: 'Livestreams', channelId: 'chan-1', pingRoleId: 'role-1' }] });
+    await app.close();
+  });
+
   it('renders monitored source route selection as an optional dropdown backed by created routes', () => {
     const shell = renderGuildAdminShell('guild-1');
 
