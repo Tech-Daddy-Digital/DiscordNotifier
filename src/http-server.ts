@@ -179,6 +179,18 @@ export async function createHttpServer(options: HttpServerOptions) {
     return { configuration: settingsStore.getGuildConfiguration(request.params.guildId) };
   });
 
+  app.get<{ Params: { guildId: string } }>('/api/guilds/:guildId/routes', async (request, reply) => {
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
+    if (!auth) return reply;
+    const routes = settingsStore.getGuildConfiguration(request.params.guildId).routes.map((route) => ({
+      id: route.id,
+      name: route.name,
+      channelId: route.channelId,
+      pingRoleId: route.pingRoleId,
+    }));
+    return { routes };
+  });
+
   app.post<{ Params: { guildId: string } }>('/api/guilds/:guildId/routes', async (request, reply) => {
     const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
