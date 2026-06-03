@@ -76,6 +76,29 @@ describe('web admin and OAuth routes', () => {
     await app.close();
   });
 
+  it('reuses the current user guild list between admin navigation requests', async () => {
+    const store = makeStore();
+    const fetchCurrentUserGuilds = vi.fn(async () => [{ id: 'guild-1', name: 'Tech Server', owner: false, permissions: '32' }]);
+    const discordApi: Partial<DiscordApiClient> = {
+      exchangeCodeForToken: vi.fn(),
+      fetchCurrentUser: vi.fn(),
+      fetchCurrentUserGuilds,
+      fetchGuildMember: vi.fn(async () => ({ userId: 'user-1', roleIds: [], permissions: '32' })),
+      fetchGuildChannels: vi.fn(async () => [{ id: 'chan-1', name: 'alerts', type: 0 }]),
+      fetchGuildRoles: vi.fn(async () => [{ id: 'role-1', name: 'Ping Crew' }]),
+    };
+    const app = await createHttpServer({ config: config(), logger: createLogger({ logLevel: 'silent' }), notificationRouter: {} as NotificationRouter, settingsStore: store, discordApi: discordApi as DiscordApiClient });
+    const sid = store.createSession({ userId: 'user-1', username: 'Admin', discriminator: '0000', avatar: null, accessToken: 'access', refreshToken: null, expiresAt: Date.now() + 60000 });
+
+    const list = await app.inject({ method: 'GET', url: '/api/guilds', cookies: { pulsedaddy_session: sid } });
+    expect(list.statusCode).toBe(200);
+
+    const detail = await app.inject({ method: 'GET', url: '/api/guilds/guild-1', cookies: { pulsedaddy_session: sid } });
+    expect(detail.statusCode).toBe(200);
+    expect(fetchCurrentUserGuilds).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
   it('allows an administrator to configure settings, routes, and monitored sources', async () => {
     const store = makeStore();
     const discordApi: Partial<DiscordApiClient> = {

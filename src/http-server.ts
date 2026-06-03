@@ -62,6 +62,7 @@ export async function createHttpServer(options: HttpServerOptions) {
 
   const settingsStore = options.settingsStore ?? new GuildSettingsStore(options.config.databasePath);
   const discordApi = options.discordApi ?? new FetchDiscordApiClient(options.config.discord.clientId, options.config.discord.clientSecret);
+  const userGuildCache = new Map<string, { expiresAt: number; guilds: DiscordUserGuild[] }>();
 
   app.addHook('onClose', async () => {
     if (!options.settingsStore) settingsStore.close();
@@ -150,12 +151,12 @@ export async function createHttpServer(options: HttpServerOptions) {
   app.get('/api/guilds', async (request, reply) => {
     const session = getSessionFromRequest(request, settingsStore);
     if (!session) return reply.code(401).send({ error: 'Login required' });
-    const guilds = await listManageableGuilds(discordApi, settingsStore, session.accessToken, session.userId);
+    const guilds = await listManageableGuilds(discordApi, settingsStore, session, userGuildCache);
     return { guilds };
   });
 
   app.get<{ Params: { guildId: string } }>('/api/guilds/:guildId', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     const [channels, roles] = await Promise.all([
       discordApi.fetchGuildChannels(options.config.discord.token, request.params.guildId),
@@ -170,7 +171,7 @@ export async function createHttpServer(options: HttpServerOptions) {
   });
 
   app.put<{ Params: { guildId: string } }>('/api/guilds/:guildId/settings', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     const body = guildSettingsBodySchema.parse(request.body);
     settingsStore.upsertGuildSettings({ guildId: request.params.guildId, guildName: body.guildName, defaultChannelId: body.defaultChannelId });
@@ -179,7 +180,7 @@ export async function createHttpServer(options: HttpServerOptions) {
   });
 
   app.post<{ Params: { guildId: string } }>('/api/guilds/:guildId/routes', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     const body = routeBodySchema.parse(request.body);
     settingsStore.upsertNotificationRoute({ id: body.id ?? randomUUID(), guildId: request.params.guildId, name: body.name, channelId: body.channelId, pingRoleId: body.pingRoleId ?? null, messageTemplate: body.messageTemplate });
@@ -187,13 +188,13 @@ export async function createHttpServer(options: HttpServerOptions) {
   });
 
   app.delete<{ Params: { guildId: string; routeId: string } }>('/api/guilds/:guildId/routes/:routeId', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     return { deleted: settingsStore.deleteNotificationRoute(request.params.guildId, request.params.routeId) };
   });
 
   app.post<{ Params: { guildId: string } }>('/api/guilds/:guildId/sources', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     const body = sourceBodySchema.parse(request.body);
     settingsStore.upsertMonitoredSource({ id: body.id ?? randomUUID(), guildId: request.params.guildId, type: body.type, displayName: body.displayName, externalId: body.externalId, url: body.url ?? null, routeId: body.routeId ?? null, enabled: body.enabled, config: body.config });
@@ -201,7 +202,7 @@ export async function createHttpServer(options: HttpServerOptions) {
   });
 
   app.delete<{ Params: { guildId: string; sourceId: string } }>('/api/guilds/:guildId/sources/:sourceId', async (request, reply) => {
-    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore);
+    const auth = await requireGuildAdmin(request, reply, discordApi, settingsStore, userGuildCache);
     if (!auth) return reply;
     return { deleted: settingsStore.deleteMonitoredSource(request.params.guildId, request.params.sourceId) };
   });
@@ -246,42 +247,59 @@ function getSessionFromRequest(request: FastifyRequest, store: StoreType) {
   return store.getSession(parseCookies(request.headers.cookie).pulsedaddy_session);
 }
 
-async function listManageableGuilds(discordApi: DiscordApiClient, store: StoreType, accessToken: string, userId: string): Promise<DiscordUserGuild[]> {
-  const guilds = await discordApi.fetchCurrentUserGuilds(accessToken);
+type UserGuildCache = Map<string, { expiresAt: number; guilds: DiscordUserGuild[] }>;
+
+async function getCurrentUserGuilds(discordApi: DiscordApiClient, session: NonNullable<ReturnType<StoreType['getSession']>>, cache: UserGuildCache): Promise<DiscordUserGuild[]> {
+  const cached = cache.get(session.id);
+  if (cached && cached.expiresAt > Date.now()) return cached.guilds;
+
+  const guilds = await discordApi.fetchCurrentUserGuilds(session.accessToken);
+  cache.set(session.id, { expiresAt: Date.now() + 5 * 60 * 1000, guilds });
+  return guilds;
+}
+
+async function listManageableGuilds(discordApi: DiscordApiClient, store: StoreType, session: NonNullable<ReturnType<StoreType['getSession']>>, cache: UserGuildCache): Promise<DiscordUserGuild[]> {
+  const guilds = await getCurrentUserGuilds(discordApi, session, cache);
   const manageable: DiscordUserGuild[] = [];
   for (const guild of guilds) {
-    if (guild.owner || canManageGuild({ userId, guildOwnerId: guild.owner ? userId : null, permissions: guild.permissions, memberRoleIds: [], configuredAdminRoleIds: [] })) {
+    if (guild.owner || canManageGuild({ userId: session.userId, guildOwnerId: guild.owner ? session.userId : null, permissions: guild.permissions, memberRoleIds: [], configuredAdminRoleIds: [] })) {
       manageable.push(guild);
       continue;
     }
     const configuredAdminRoleIds = store.getGuildConfiguration(guild.id).adminRoleIds;
     if (configuredAdminRoleIds.length === 0) continue;
-    const member = await discordApi.fetchGuildMember(accessToken, guild.id);
-    if (canManageGuild({ userId, guildOwnerId: null, permissions: guild.permissions, memberRoleIds: member.roleIds, configuredAdminRoleIds })) manageable.push(guild);
+    const member = await discordApi.fetchGuildMember(session.accessToken, guild.id);
+    if (canManageGuild({ userId: session.userId, guildOwnerId: null, permissions: guild.permissions, memberRoleIds: member.roleIds, configuredAdminRoleIds })) manageable.push(guild);
   }
   return manageable;
 }
 
-async function requireGuildAdmin(request: FastifyRequest<{ Params: { guildId: string } }>, reply: FastifyReply, discordApi: DiscordApiClient, store: StoreType) {
+async function requireGuildAdmin(request: FastifyRequest<{ Params: { guildId: string } }>, reply: FastifyReply, discordApi: DiscordApiClient, store: StoreType, cache: UserGuildCache) {
   const session = getSessionFromRequest(request, store);
   if (!session) {
     reply.code(401).send({ error: 'Login required' });
     return null;
   }
-  const guilds = await discordApi.fetchCurrentUserGuilds(session.accessToken);
+  const guilds = await getCurrentUserGuilds(discordApi, session, cache);
   const guild = guilds.find((candidate) => candidate.id === request.params.guildId);
   if (!guild) {
     reply.code(403).send({ error: 'Guild is not available for this Discord user' });
     return null;
   }
-  const member = await discordApi.fetchGuildMember(session.accessToken, request.params.guildId);
   const configuration = store.getGuildConfiguration(request.params.guildId);
-  const allowed = canManageGuild({ userId: session.userId, guildOwnerId: guild.owner ? session.userId : null, permissions: guild.permissions || member.permissions, memberRoleIds: member.roleIds, configuredAdminRoleIds: configuration.adminRoleIds });
-  if (!allowed) {
-    reply.code(403).send({ error: 'PulseDaddy guild admin permission required' });
-    return null;
+  if (guild.owner || canManageGuild({ userId: session.userId, guildOwnerId: guild.owner ? session.userId : null, permissions: guild.permissions, memberRoleIds: [], configuredAdminRoleIds: [] })) {
+    return { session, guild, member: null };
   }
-  return { session, guild, member };
+
+  if (configuration.adminRoleIds.length > 0) {
+    const member = await discordApi.fetchGuildMember(session.accessToken, request.params.guildId);
+    if (canManageGuild({ userId: session.userId, guildOwnerId: null, permissions: guild.permissions || member.permissions, memberRoleIds: member.roleIds, configuredAdminRoleIds: configuration.adminRoleIds })) {
+      return { session, guild, member };
+    }
+  }
+
+  reply.code(403).send({ error: 'PulseDaddy guild admin permission required' });
+  return null;
 }
 
 function parseCookies(cookieHeader?: string): Record<string, string> {
