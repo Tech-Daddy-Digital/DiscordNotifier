@@ -34,6 +34,17 @@ describe('GuildSettingsStore', () => {
     store.close();
   });
 
+
+  it('stores existing monitored source route IDs unchanged without requiring a known route', () => {
+    const store = new GuildSettingsStore(tempDb());
+    const legacyRouteId = 'legacy-route-id:kept-unchanged';
+
+    store.upsertMonitoredSource({ id: 'src-legacy', guildId: 'guild-1', type: 'youtube', displayName: 'Tech Daddy', externalId: '@TechDaddy', url: null, routeId: legacyRouteId, enabled: true, config: {} });
+
+    expect(store.getGuildConfiguration('guild-1').sources[0]?.routeId).toBe(legacyRouteId);
+    store.close();
+  });
+
   it('deletes monitored sources by guild and source id', () => {
     const store = new GuildSettingsStore(tempDb());
     store.upsertMonitoredSource({ id: 'src-1', guildId: 'guild-1', type: 'youtube', displayName: 'Tech Daddy', externalId: '@TechDaddy', url: null, routeId: null, enabled: true, config: {} });
