@@ -20,4 +20,22 @@ describe('guild admin shell selectors', () => {
     expect(html).toContain('currentValue');
     expect(html).toContain('Unknown saved ID');
   });
+
+  it('loads reusable route selector options with route IDs as values and human labels', () => {
+    const html = renderGuildAdminShell('guild-1');
+
+    expect(html).toContain('function normalizeRouteSelectorOptions');
+    expect(html).toContain('value:String(route.id)');
+    expect(html).toContain('label:String(route.name||route.id)');
+    expect(html).toContain("api('/api/guilds/'+guildId+'/routes')");
+    expect(html).toContain("routeOptions(routeSelectorOptions,'')");
+  });
+
+  it('keeps the route selector safe when the route list is empty or cannot load', () => {
+    const html = renderGuildAdminShell('guild-1');
+
+    expect(html).toContain('return (routes||[])');
+    expect(html).toContain('No route');
+    expect(html).toContain('Route selector is using saved routes because the route list could not be loaded');
+  });
 });

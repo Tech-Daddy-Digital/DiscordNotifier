@@ -129,7 +129,8 @@ describe('web admin and OAuth routes', () => {
   it('renders monitored source route selection as an optional dropdown backed by created routes', () => {
     const shell = renderGuildAdminShell('guild-1');
 
-    expect(shell).toContain('function routeOptions(routes,currentValue)');
+    expect(shell).toContain('function routeOptions(routeSelectorOptions,currentValue)');
+    expect(shell).toContain("api('/api/guilds/'+guildId+'/routes')");
     expect(shell).toContain('<select id="sourceRoute">');
     expect(shell).toContain('<option value=""');
     expect(shell).toContain('>No route</option>');
