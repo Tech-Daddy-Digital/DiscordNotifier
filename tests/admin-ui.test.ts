@@ -38,4 +38,12 @@ describe('guild admin shell selectors', () => {
     expect(html).toContain('No route');
     expect(html).toContain('Route selector is using saved routes because the route list could not be loaded');
   });
+
+  it('displays saved monitored source route IDs through the loaded route options', () => {
+    const html = renderGuildAdminShell('guild-1');
+
+    expect(html).toContain('function routeOptionText(routeSelectorOptions,currentValue)');
+    expect(html).toContain("routeOptionText(routeSelectorOptions,s.routeId)");
+    expect(html).toContain("Unknown saved ID: ' + value");
+  });
 });
