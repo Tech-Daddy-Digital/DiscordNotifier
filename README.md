@@ -93,6 +93,40 @@ For Docker deployment:
 
 Using `DISCORD_GUILD_ID` is recommended during testing because slash commands update almost immediately in one server. Without it, commands are registered globally and may take up to an hour to appear.
 
+## Environment variables
+
+Copy `.env.example` to `.env` and configure these values:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | Yes | Bot token from the Discord Developer Portal Bot page. Keep this secret and rotate it immediately if exposed. |
+| `DISCORD_CLIENT_ID` | Yes | Application ID from OAuth2 -> General in the Discord Developer Portal. |
+| `DISCORD_GUILD_ID` | Recommended for testing | Test server ID. Guild command registration updates almost immediately; global commands can take up to an hour. |
+| `DISCORD_NOTIFICATION_CHANNEL_ID` | Yes | Default text channel where MVP notifications are posted. |
+| `HTTP_HOST` | No | Bind address for the Fastify health/webhook server. Defaults to `0.0.0.0`. |
+| `HTTP_PORT` | No | HTTP port. Defaults to `3000`. |
+| `NOTIFICATION_WEBHOOK_TOKEN` | Strongly recommended | Shared bearer token for notification endpoints. Required for any public/cloud deployment. |
+| `LOG_LEVEL` | No | Pino log level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, or `silent`. |
+| `SEND_STARTUP_PLACEHOLDER_NOTIFICATION` | No | Set `true` to post a startup check message after Discord connects. Defaults to `false`. |
+
+### Discord permissions and intents
+
+PulseDaddy only needs the Discord `Guilds` gateway intent for the current MVP slash-command and notification flow. No privileged intents are required yet.
+
+Invite the bot with these OAuth2 scopes:
+
+- `bot`
+- `applications.commands`
+
+Grant the bot these minimum permissions in the target notification channel:
+
+- View Channels
+- Send Messages
+- Embed Links
+- Read Message History
+
+If notifications return `202` but no Discord message appears, check that the bot role can see and send to `DISCORD_NOTIFICATION_CHANNEL_ID`.
+
 ## Local setup
 
 ```bash
@@ -190,6 +224,69 @@ docker compose down
 5. Run `docker compose up -d --build`.
 6. If exposing the HTTP endpoint publicly, put it behind HTTPS with a reverse proxy such as Caddy, Traefik, Nginx Proxy Manager, or Cloudflare Tunnel.
 7. Always set `NOTIFICATION_WEBHOOK_TOKEN` for exposed endpoints.
+
+## Launch validation
+
+The completed MVP launch checklist lives at `docs/launch-test-checklist.md`. It covers bot startup, Docker health, slash-command registration, notification delivery, formatting, configuration failures, malformed request handling, restart/reconnect behavior, and remaining manual Discord UI checks.
+
+Before handing a deployment to a new owner, run:
+
+```bash
+npm run check
+npm run smoke:config
+npm run discord:register
+docker compose up -d --build
+curl http://127.0.0.1:3000/health
+```
+
+Then send both a placeholder notification and the mock YouTube livestream-start notification from the examples above. The HTTP response should be `202`, and the messages should appear in the configured Discord channel.
+
+## Troubleshooting
+
+### `Invalid configuration` on startup
+
+Run:
+
+```bash
+npm run smoke:config
+```
+
+The error names the missing or invalid environment variables. Most launch failures are caused by missing `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, or `DISCORD_NOTIFICATION_CHANNEL_ID` values.
+
+### Slash commands do not appear
+
+- Confirm the bot invite included the `applications.commands` scope.
+- During testing, set `DISCORD_GUILD_ID` and run `npm run discord:register` again.
+- Restart Discord or wait a minute. Guild commands update quickly; global commands can take up to an hour.
+
+### Notification endpoint returns `401`
+
+`NOTIFICATION_WEBHOOK_TOKEN` is set, so include this header:
+
+```text
+Authorization: Bearer <your-webhook-token>
+```
+
+### Notification endpoint returns `400`
+
+The JSON body is malformed or failed validation. Check required fields, URL formatting, and date formatting. The response includes field-level issues.
+
+### Endpoint returns `202` but Discord does not show a message
+
+- Confirm `DISCORD_NOTIFICATION_CHANNEL_ID` points to a text channel in the server where the bot is installed.
+- Confirm the bot can View Channels, Send Messages, and Embed Links in that channel.
+- Check recent container logs with `docker compose logs --tail=80 pulsedaddy`.
+
+### Restart or reconnect testing
+
+```bash
+docker compose restart pulsedaddy
+docker compose ps
+curl http://127.0.0.1:3000/health
+docker compose logs --tail=80 pulsedaddy
+```
+
+The container should return to `healthy`, the health endpoint should respond, and logs should show the Discord bot reconnecting.
 
 ## API credentials needed later
 

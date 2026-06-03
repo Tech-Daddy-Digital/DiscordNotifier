@@ -28,6 +28,21 @@ export async function createHttpServer(options: HttpServerOptions) {
   const app = Fastify({ loggerInstance: options.logger });
   await app.register(helmet);
 
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof z.ZodError) {
+      return reply.code(400).send({
+        error: 'Invalid request body',
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+
+    options.logger.error({ error }, 'Unhandled HTTP request error');
+    return reply.send(error);
+  });
+
   app.get('/health', async () => ({
     ok: true,
     service: 'PulseDaddy Discord notification bot',
