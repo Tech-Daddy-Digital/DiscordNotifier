@@ -16,7 +16,7 @@ const httpServer = await createHttpServer({
 
 await registerCommands(config, logger);
 await httpServer.listen({ host: config.http.host, port: config.http.port });
-logger.info({ host: config.http.host, port: config.http.port }, 'HTTP server listening');
+logger.info({ host: config.http.host, port: config.http.port, webBaseUrl: config.http.webBaseUrl }, 'HTTP server listening');
 
 await bot.client.login(config.discord.token);
 
