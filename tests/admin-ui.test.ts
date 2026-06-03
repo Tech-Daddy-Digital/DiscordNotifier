@@ -1,5 +1,19 @@
+import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { renderGuildAdminShell } from '../src/admin-ui.js';
+
+function loadGuildAdminScript() {
+  const shell = renderGuildAdminShell('guild-1');
+  const script = shell.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  if (!script) throw new Error('Guild admin script not found');
+  const context = vm.createContext({ document: { querySelector: () => ({}) }, fetch: async () => ({ ok: true, json: async () => ({}) }) });
+  vm.runInContext(script.replace(/boot\(\)\.catch\([\s\S]*$/, ''), context);
+  return context as {
+    normalizeRouteSelectorOptions: (routes: unknown[]) => Array<{ value: string; label: string }>;
+    routeOptions: (routes: Array<{ value: string; label: string }>, currentValue: string) => string;
+    routeOptionText: (routes: Array<{ value: string; label: string }>, currentValue: string | null) => string;
+  };
+}
 
 describe('guild admin shell selectors', () => {
   it('renders channel and ping role controls as dropdowns without ID cross-reference lists', () => {
@@ -46,4 +60,30 @@ describe('guild admin shell selectors', () => {
     expect(html).toContain("routeOptionText(routeSelectorOptions,s.routeId)");
     expect(html).toContain("Unknown saved ID: ' + value");
   });
+
+  it('normalizes route selector options from created routes into route ID values and human labels', () => {
+    const script = loadGuildAdminScript();
+
+    expect(script.normalizeRouteSelectorOptions([{ id: 'route-live', name: 'Livestream alerts' }, { id: 'route-fallback', name: '' }, { name: 'missing id' }, null])).toEqual([
+      { value: 'route-live', label: 'Livestream alerts' },
+      { value: 'route-fallback', label: 'route-fallback' },
+    ]);
+  });
+
+  it('renders route dropdown labels for humans while keeping route IDs as option values', () => {
+    const script = loadGuildAdminScript();
+    const options = [{ value: 'route-live', label: 'Livestream alerts' }];
+
+    expect(script.routeOptions(options, 'route-live')).toContain('<option value="route-live" selected>Livestream alerts (route-live)</option>');
+    expect(script.routeOptionText(options, 'route-live')).toBe('Livestream alerts (route-live)');
+  });
+
+  it('renders a safe empty route dropdown and preserves unknown saved route IDs', () => {
+    const script = loadGuildAdminScript();
+
+    expect(script.routeOptions([], '')).toBe('<option value="" selected>No route</option>');
+    expect(script.routeOptions([], 'legacy-route-id')).toContain('<option value="legacy-route-id" selected>Unknown saved ID: legacy-route-id</option>');
+    expect(script.routeOptionText([], 'legacy-route-id')).toBe('Unknown saved ID: legacy-route-id');
+  });
+
 });

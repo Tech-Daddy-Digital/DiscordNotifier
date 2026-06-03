@@ -100,6 +100,28 @@ describe('web admin and OAuth routes', () => {
     await app.close();
   });
 
+
+  it('includes created routes in guild detail responses for route selector fallback loading', async () => {
+    const store = makeStore();
+    store.upsertNotificationRoute({ id: 'route-live', guildId: 'guild-1', name: 'Livestream alerts', channelId: 'chan-1', pingRoleId: null, messageTemplate: '{{displayName}} is live' });
+    const discordApi: Partial<DiscordApiClient> = {
+      exchangeCodeForToken: vi.fn(),
+      fetchCurrentUser: vi.fn(),
+      fetchCurrentUserGuilds: vi.fn(async () => [{ id: 'guild-1', name: 'Tech Server', owner: false, permissions: '32' }]),
+      fetchGuildMember: vi.fn(async () => ({ userId: 'user-1', roleIds: [], permissions: '32' })),
+      fetchGuildChannels: vi.fn(async () => [{ id: 'chan-1', name: 'alerts', type: 0 }]),
+      fetchGuildRoles: vi.fn(async () => []),
+    };
+    const app = await createHttpServer({ config: config(), logger: createLogger({ logLevel: 'silent' }), notificationRouter: {} as NotificationRouter, settingsStore: store, discordApi: discordApi as DiscordApiClient });
+    const sid = store.createSession({ userId: 'user-1', username: 'Admin', discriminator: '0000', avatar: null, accessToken: 'access', refreshToken: null, expiresAt: Date.now() + 60000 });
+
+    const response = await app.inject({ method: 'GET', url: '/api/guilds/guild-1', cookies: { pulsedaddy_session: sid } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().configuration.routes).toEqual([expect.objectContaining({ id: 'route-live', name: 'Livestream alerts', channelId: 'chan-1', pingRoleId: null })]);
+    await app.close();
+  });
+
   it('returns created route options with stable IDs and safe empty state', async () => {
     const store = makeStore();
     const discordApi: Partial<DiscordApiClient> = {
@@ -135,6 +157,34 @@ describe('web admin and OAuth routes', () => {
     expect(shell).toContain('<option value=""');
     expect(shell).toContain('>No route</option>');
     expect(shell).not.toContain('<input id="sourceRoute" placeholder="Optional route ID">');
+  });
+
+
+  it('submits monitored source route IDs unchanged for backward-compatible persistence', async () => {
+    const store = makeStore();
+    const discordApi: Partial<DiscordApiClient> = {
+      exchangeCodeForToken: vi.fn(),
+      fetchCurrentUser: vi.fn(),
+      fetchCurrentUserGuilds: vi.fn(async () => [{ id: 'guild-1', name: 'Tech Server', owner: false, permissions: '32' }]),
+      fetchGuildMember: vi.fn(async () => ({ userId: 'user-1', roleIds: [], permissions: '32' })),
+      fetchGuildChannels: vi.fn(async () => []),
+      fetchGuildRoles: vi.fn(async () => []),
+    };
+    const app = await createHttpServer({ config: config(), logger: createLogger({ logLevel: 'silent' }), notificationRouter: {} as NotificationRouter, settingsStore: store, discordApi: discordApi as DiscordApiClient });
+    const sid = store.createSession({ userId: 'user-1', username: 'Admin', discriminator: '0000', avatar: null, accessToken: 'access', refreshToken: null, expiresAt: Date.now() + 60000 });
+    const legacyRouteId = 'legacy-route-id:kept-unchanged';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/guilds/guild-1/sources',
+      cookies: { pulsedaddy_session: sid },
+      payload: { id: 'src-legacy', type: 'youtube', displayName: 'Tech Daddy', externalId: '@TechDaddy', routeId: legacyRouteId, enabled: true, config: { lifecycle: ['live'] } },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().configuration.sources[0]).toMatchObject({ id: 'src-legacy', routeId: legacyRouteId });
+    expect(store.getGuildConfiguration('guild-1').sources[0]?.routeId).toBe(legacyRouteId);
+    await app.close();
   });
 
   it('allows an administrator to configure settings, routes, and monitored sources', async () => {
